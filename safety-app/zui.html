@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Tourist Safety Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --sidebar-width: 260px; --sidebar-width-collapsed: 80px; }
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; overflow-x: hidden; }
+        .header { background-color: #ffffff; border-bottom: 1px solid #e2e8f0; color: #1e293b;}
+        .sidebar { background-color: #0f172a; width: var(--sidebar-width); transition: width 0.3s ease; }
+        .sidebar.collapsed { width: var(--sidebar-width-collapsed); }
+        .sidebar-link { display: flex; align-items: center; padding: 12px 24px; color: #94a3b8; transition: all 0.2s ease; border-left: 3px solid transparent; }
+        .sidebar-link:hover { background-color: #1e293b; color: #f1f5f9; }
+        .sidebar-link.active { background-color: #1e293b; color: white; border-left-color: #3b82f6; }
+        .sidebar .link-text { opacity: 1; transition: opacity 0.3s ease, width 0.3s ease; white-space: nowrap; }
+        .sidebar.collapsed .link-text { opacity: 0; width: 0; pointer-events: none; }
+        .main-content { margin-left: var(--sidebar-width); transition: margin-left 0.3s ease; }
+        body.sidebar-collapsed .main-content { margin-left: var(--sidebar-width-collapsed); }
+        .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.06); }
+        .status-new { background-color: #fef9c3; color: #854d0e; }
+        .status-progress { background-color: #dbeafe; color: #1e40af; }
+        .status-resolved { background-color: #d1fae5; color: #065f46; }
+        .live-dot { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        #map, .modal-map { height: 100%; width: 100%; border-radius: 8px; z-index: 0; }
+        .modal-backdrop { background-color: rgba(15, 23, 42, 0.5); }
+        .page { display: none; }
+        .page.active { display: block; animation: fadeIn 0.5s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .dropdown { position: relative; display: inline-block; }
+        .dropdown-content { display: none; position: absolute; background-color: white; min-width: 160px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); z-index: 50; border-radius: 8px; right: 0; }
+        .dropdown-content a { color: #334155; padding: 12px 16px; text-decoration: none; display: block; font-size: 14px; }
+        .dropdown-content a:hover { background-color: #f1f5f9; }
+        .dropdown:hover .dropdown-content { display: block; }
+    </style>
+</head>
+<body class="sidebar-collapsed">
+
+    <!-- Logged-In Application Container -->
+    <div id="app-container" class="hidden">
+        <!-- Sidebar Navigation -->
+        <aside id="sidebar" class="sidebar fixed top-0 left-0 h-full text-white flex flex-col z-40">
+            <div class="flex items-center justify-center h-16 border-b border-slate-700 flex-shrink-0 px-4">
+                <img src="https://tourism.ap.gov.in/assets/img/ap-tourism-logo.png" alt="Logo" class="h-10 transition-transform duration-300">
+                <span class="link-text text-xl font-bold ml-2">STS</span>
+            </div>
+            <nav id="nav-links" class="flex-grow pt-4 overflow-y-auto">
+                <a data-page="dashboard" class="sidebar-link active">
+                    <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                    <span class="link-text ml-4">Dashboard</span>
+                </a>
+                <a data-page="incidents" class="sidebar-link">
+                    <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span class="link-text ml-4">Incidents</span>
+                </a>
+                <a data-page="tourists" class="sidebar-link">
+                    <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                    <span class="link-text ml-4">Tourists</span>
+                </a>
+                <a data-page="reports" class="sidebar-link">
+                    <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    <span class="link-text ml-4">Reports</span>
+                </a>
+                <a data-page="settings" class="sidebar-link">
+                    <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    <span class="link-text ml-4">Settings</span>
+                </a>
+            </nav>
+            <div id="sidebar-toggle" class="flex-shrink-0 p-4 border-t border-slate-700 cursor-pointer text-center hover:bg-slate-700">
+                 <svg class="w-6 h-6 mx-auto text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
+            </div>
+        </aside>
+
+        <div class="main-content flex flex-col h-screen">
+            <!-- Header -->
+            <header class="header flex-shrink-0">
+                <div class="flex items-center justify-between h-16 px-8">
+                    <div id="breadcrumb" class="text-sm font-semibold text-slate-500">Home / Dashboard</div>
+                    <div class="flex items-center space-x-6">
+                        <div class="dropdown">
+                            <button class="flex items-center space-x-2">
+                                <img class="h-9 w-9 rounded-full object-cover ring-2 ring-offset-2 ring-offset-white ring-blue-500" src="https://placehold.co/40x40/e2e8f0/334155?text=PS" alt="Officer Avatar">
+                                <div class="text-left hidden md:block">
+                                    <p class="font-semibold text-sm text-slate-800">Inspector P. Sharma</p>
+                                    <p class="text-xs text-slate-500">Admin</p>
+                                </div>
+                            </button>
+                            <div class="dropdown-content mt-2">
+                                <a href="#" id="profile-modal-btn" class="flex items-center space-x-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg><span>View Profile</span></a>
+                                <a href="#" id="logout-button" class="flex items-center space-x-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg><span>Logout</span></a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content Area -->
+            <main class="flex-grow p-6 overflow-y-auto">
+                <div id="page-content">
+                    <!-- Dynamic pages will be loaded here -->
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <!-- Logged-Out State: Login Page -->
+    <div id="login-container" class="flex items-center justify-center min-h-screen bg-slate-100"></div>
+    
+    <!-- Modals will be injected here -->
+    <div id="modal-container"></div>
+    
+    <!-- TEMPLATES for pages and modals are defined below for clarity -->
+    <template id="dashboard-page-template">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-slate-800">Dashboard</h1>
+            <p id="current-time" class="font-semibold text-slate-500"></p>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 card p-4 h-[600px] flex flex-col"><div class="flex-grow" id="map"></div></div>
+            <div class="flex flex-col space-y-6">
+                <div class="card p-6">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">Live Statistics</h3>
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
+                            <div><p class="text-sm text-blue-800 font-medium">Total Active Tourists</p><p id="active-tourists" class="text-3xl font-bold text-blue-900">1,428</p></div>
+                        </div>
+                        <div class="flex items-center justify-between p-4 bg-yellow-50 rounded-lg">
+                            <div><p class="text-sm text-yellow-800 font-medium">In High-Risk Zones</p><p id="high-risk-tourists" class="text-3xl font-bold text-yellow-900">73</p></div>
+                        </div>
+                        <div class="flex items-center justify-between p-4 bg-red-50 rounded-lg">
+                            <div><p class="text-sm text-red-800 font-medium">Active Alerts Today</p><p id="active-alerts" class="text-3xl font-bold text-red-900">4</p></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card p-6 flex-grow">
+                    <div class="flex items-center mb-4"><div class="w-3 h-3 bg-red-500 rounded-full live-dot mr-2"></div><h3 class="text-lg font-bold text-slate-800">Live Alert Feed</h3></div>
+                    <div id="alert-feed" class="space-y-3 h-48 overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+        <div class="card p-6 mt-6">
+            <h2 class="text-xl font-bold mb-4 text-slate-800">Active Incidents</h2>
+            <div class="overflow-x-auto">
+                <table id="incidents-table-dashboard" class="w-full text-sm text-left text-slate-500"></table>
+            </div>
+        </div>
+    </template>
+    
+    <template id="incidents-page-template">
+         <h1 class="text-3xl font-bold text-slate-800 mb-6">Incidents Log</h1>
+         <div class="card p-6">
+            <div class="overflow-x-auto">
+                <table id="incidents-table-main" class="w-full text-sm text-left text-slate-500"></table>
+            </div>
+         </div>
+    </template>
+
+    <template id="tourists-page-template">
+         <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-slate-800">Tourist Directory</h1>
+            <button id="add-tourist-btn" class="bg-blue-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-blue-700 transition">Add New Tourist</button>
+         </div>
+         <div class="card p-6">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left text-slate-500">
+                     <thead class="text-xs text-slate-700 uppercase bg-slate-100">
+                        <tr>
+                            <th scope="col" class="px-6 py-3">Tourist Name</th><th scope="col" class="px-6 py-3">Digital ID (Blockchain)</th>
+                            <th scope="col" class="px-6 py-3">Nationality</th><th scope="col" class="px-6 py-3">Trip End Date</th>
+                            <th scope="col" class="px-6 py-3">Status</th><th scope="col" class="px-6 py-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="bg-white border-b hover:bg-slate-50"><td class="px-6 py-4 font-medium text-slate-900">Anjali Sharma</td><td class="px-6 py-4 font-mono text-xs">0x1a2B...s0T</td><td class="px-6 py-4">Indian</td><td class="px-6 py-4">25 Sep 2025</td><td class="px-6 py-4"><span class="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">Active</span></td><td class="px-6 py-4"><a href="#" class="font-medium text-blue-600 hover:underline">View Details</a></td></tr>
+                        <tr class="bg-white border-b hover:bg-slate-50"><td class="px-6 py-4 font-medium text-slate-900">Johnathan Smith</td><td class="px-6 py-4 font-mono text-xs">0x4c8D...u7P</td><td class="px-6 py-4">American</td><td class="px-6 py-4">30 Sep 2025</td><td class="px-6 py-4"><span class="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">Active</span></td><td class="px-6 py-4"><a href="#" class="font-medium text-blue-600 hover:underline">View Details</a></td></tr>
+                        <tr class="bg-white hover:bg-slate-50"><td class="px-6 py-4 font-medium text-slate-900">Ken Tanaka</td><td class="px-6 py-4 font-mono text-xs">0x9b2E...w2R</td><td class="px-6 py-4">Japanese</td><td class="px-6 py-4">18 Sep 2025</td><td class="px-6 py-4"><span class="px-2 py-1 bg-slate-100 text-slate-800 text-xs font-medium rounded-full">Departed</span></td><td class="px-6 py-4"><a href="#" class="font-medium text-blue-600 hover:underline">View Details</a></td></tr>
+                    </tbody>
+                </table>
+            </div>
+         </div>
+    </template>
+    
+    <template id="reports-page-template">
+         <div class="flex justify-between items-center mb-6"><h1 class="text-3xl font-bold text-slate-800">Reports & Analytics</h1><button class="bg-blue-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-blue-700 transition">Export PDF</button></div>
+         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div class="card p-6 md:col-span-1 lg:col-span-1"><h3 class="font-bold mb-2 text-slate-700">Incidents by Type</h3><canvas id="incidents-type-chart"></canvas></div>
+            <div class="card p-6 md:col-span-2 lg:col-span-2"><h3 class="font-bold mb-2 text-slate-700">Incidents Over Time (Last 30 Days)</h3><canvas id="incidents-time-chart"></canvas></div>
+            <div class="card p-6 md:col-span-2 lg:col-span-2"><h3 class="font-bold mb-2 text-slate-700">High-Risk Zone Activity</h3><canvas id="risk-zone-chart"></canvas></div>
+            <div class="card p-6 md:col-span-1 lg:col-span-1"><h3 class="font-bold mb-2 text-slate-700">Tourist Demographics</h3><canvas id="demographics-chart"></canvas></div>
+         </div>
+    </template>
+
+    <template id="settings-page-template">
+        <h1 class="text-3xl font-bold text-slate-800 mb-6">Settings</h1>
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div class="lg:col-span-1">
+                <div class="card p-4">
+                    <nav id="settings-nav" class="space-y-1">
+                        <a href="#" data-subpage="profile" class="block px-4 py-2 text-sm font-medium text-slate-700 rounded-md bg-slate-100">Profile</a>
+                        <a href="#" data-subpage="zones" class="block px-4 py-2 text-sm font-medium text-slate-600 rounded-md hover:bg-slate-50">Zone Editor</a>
+                        <a href="#" data-subpage="users" class="block px-4 py-2 text-sm font-medium text-slate-600 rounded-md hover:bg-slate-50">User Management</a>
+                    </nav>
+                </div>
+            </div>
+            <div id="settings-content" class="lg:col-span-3">
+                <!-- Settings subpages will be loaded here -->
+            </div>
+        </div>
+    </template>
+    
+    <template id="settings-profile-subpage-template">
+        <div class="card p-6"><h3 class="font-bold text-lg text-slate-800">Profile Settings</h3><div class="mt-4 space-y-4"><div><label class="block text-sm font-medium">Name</label><input type="text" value="Inspector P. Sharma" class="w-full border rounded-md p-2 mt-1"></div><div><label class="block text-sm font-medium">Email</label><input type="email" value="p.sharma@vizagpolice.gov.in" class="w-full border rounded-md p-2 mt-1"></div><button class="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">Update Profile</button></div></div>
+    </template>
+    
+    <template id="settings-zones-subpage-template">
+        <div class="card p-6"><h3 class="font-bold text-lg text-slate-800 mb-4">High-Risk Zone Editor</h3><p class="text-sm text-slate-500 mb-4">Click the polygon tool on the map to draw a new high-risk zone. Click on an existing zone to edit or delete it.</p><div class="h-[500px]" id="zone-editor-map"></div></div>
+    </template>
+
+    <template id="settings-users-subpage-template">
+        <div class="card p-6"><h3 class="font-bold text-lg text-slate-800 mb-4">User Management</h3><div class="overflow-x-auto"><table class="w-full text-sm"></table></div></div>
+    </template>
+
+    <template id="profile-modal-template">
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div class="modal-backdrop fixed inset-0"></div>
+            <div class="modal card w-full max-w-md mx-auto relative"><div class="p-6"><h3 class="text-lg font-bold text-slate-800">Officer Profile</h3><div class="mt-4 flex items-center space-x-4"><img class="h-20 w-20 rounded-full object-cover" src="https://placehold.co/80x80/e2e8f0/334155?text=PS" alt="Officer Avatar"><div><p class="font-bold text-xl">Inspector P. Sharma</p><p class="text-slate-500">Badge ID: #4782</p><p class="text-slate-500">Unit: Visakhapatnam Central</p></div></div><div class="mt-6 flex justify-end space-x-2"><button class="modal-close-btn px-4 py-2 bg-slate-200 rounded-md font-semibold text-slate-700">Close</button><button class="modal-close-btn px-4 py-2 bg-red-600 text-white rounded-md font-semibold">Logout</button></div></div></div>
+        </div>
+    </template>
+    
+    <template id="details-modal-template">
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4"><div class="modal-backdrop fixed inset-0"></div><div class="modal card w-full max-w-4xl mx-auto relative max-h-[90vh] flex flex-col"><div class="p-6 border-b"><h3 class="text-xl font-bold text-slate-800">Incident Details: <span id="details-id"></span></h3></div><div class="p-6 flex-grow overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-6"><div><h4 class="font-bold mb-2">Tourist Information</h4><p><strong>Name:</strong> <span id="details-name"></span></p><p><strong>Nationality:</strong> Indian</p><p><strong>Emergency Contact:</strong> +91 9876543210</p><div class="mt-4 h-64 card"><div class="modal-map" id="details-map"></div></div></div><div><h4 class="font-bold mb-2">Event Log</h4><ul class="space-y-2 text-sm text-slate-600"><li><strong>12:45 PM:</strong> Panic button activated by tourist.</li><li><strong>12:46 PM:</strong> Alert received at central command.</li><li><strong>12:48 PM:</strong> Unit 7 dispatched to last known location.</li></ul></div></div><div class="p-4 bg-slate-50 flex justify-end"><button class="modal-close-btn px-4 py-2 bg-slate-600 text-white rounded-md font-semibold">Close</button></div></div></div>
+    </template>
+
+    <template id="dispatch-modal-template">
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4"><div class="modal-backdrop fixed inset-0"></div><div class="modal card w-full max-w-lg mx-auto relative"><div class="p-6"><h3 class="text-lg font-bold">Dispatch Unit for <span id="dispatch-id"></span></h3><div class="mt-4"><label for="unit" class="block text-sm font-medium text-slate-700">Select Unit:</label><select id="unit" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-slate-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"><option>Unit 7 (Araku Valley Patrol)</option><option>Unit 3 (City Response Team)</option><option>Unit 9 (Coastal Guard)</option></select></div><div class="mt-6 flex justify-end space-x-2"><button class="modal-close-btn px-4 py-2 bg-slate-200 rounded-md font-semibold">Cancel</button><button class="modal-close-btn px-4 py-2 bg-blue-600 text-white rounded-md font-semibold">Confirm Dispatch</button></div></div></div></div>
+    </template>
+    
+    <template id="add-tourist-modal-template">
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4"><div class="modal-backdrop fixed inset-0"></div><div class="modal card w-full max-w-2xl mx-auto relative max-h-[90vh] flex flex-col"><div class="p-6 border-b"><h3 class="text-xl font-bold text-slate-800">Register New Tourist</h3></div><div class="p-6 flex-grow overflow-y-auto space-y-4"><div><label class="block text-sm font-medium">Full Name</label><input type="text" class="w-full border rounded-md p-2 mt-1"></div><div><label class="block text-sm font-medium">Nationality</label><input type="text" class="w-full border rounded-md p-2 mt-1"></div><div><label class="block text-sm font-medium">Passport / Aadhaar Number</label><input type="text" class="w-full border rounded-md p-2 mt-1"></div><div><label class="block text-sm font-medium">Trip End Date</label><input type="date" class="w-full border rounded-md p-2 mt-1"></div></div><div class="p-4 bg-slate-50 flex justify-end space-x-2"><button class="modal-close-btn px-4 py-2 bg-slate-200 rounded-md font-semibold">Cancel</button><button class="modal-close-btn px-4 py-2 bg-blue-600 text-white rounded-md font-semibold">Mint Digital ID & Register</button></div></div></div>
+    </template>
+
+    <template id="login-page-template">
+        <div class="w-full max-w-md">
+            <div class="text-center mb-8">
+                 <img src="https://tourism.ap.gov.in/assets/img/ap-tourism-logo.png" alt="Logo" class="h-16 mx-auto mb-4">
+                 <h1 class="text-2xl font-bold text-slate-800">Smart Tourist Safety Portal</h1>
+                 <p class="text-slate-500">Authorized Personnel Login</p>
+            </div>
+            <div class="bg-white p-8 rounded-xl shadow-lg">
+                <div class="space-y-6">
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-slate-700">Email Address</label>
+                        <input type="email" id="email" value="p.sharma@vizagpolice.gov.in" class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm shadow-sm placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-slate-700">Password</label>
+                        <input type="password" id="password" value="************" class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm shadow-sm placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                    </div>
+                    <button id="login-button" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Sign In</button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+
+    <script>
+    const AppState = {
+        currentPage: 'dashboard',
+        isSidebarCollapsed: false,
+        incidents: [
+            { id: 'INC-004', name: 'Anjali Sharma', type: 'PANIC BUTTON', typeColor: 'text-red-600', location: 'Araku Valley Viewpoint', time: '12:45 PM', status: 'New', lat: 18.33, lng: 82.87 },
+            { id: 'INC-003', name: 'Rohan Kumar', type: 'ANOMALY DETECTED', typeColor: 'text-orange-600', location: 'Paderu Forest Area', time: '11:32 AM', status: 'In Progress', lat: 18.08, lng: 82.67 },
+            { id: 'INC-002', name: 'Priya Patel', type: 'GEO-FENCE BREACH', typeColor: 'text-yellow-600', location: 'Restricted Tribal Zone', time: '09:15 AM', status: 'Resolved', lat: 17.85, lng: 83.02 }
+        ],
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        if (sessionStorage.getItem('isLoggedIn') === 'true') {
+            showApp();
+        } else {
+            showLogin();
+        }
+        setupEventListeners();
+    });
+
+    function showApp() {
+        document.getElementById('app-container').classList.remove('hidden');
+        document.getElementById('login-container').innerHTML = '';
+        document.getElementById('login-container').classList.add('hidden');
+        document.body.classList.toggle('sidebar-collapsed', AppState.isSidebarCollapsed);
+        document.getElementById('sidebar').classList.toggle('collapsed', AppState.isSidebarCollapsed);
+        renderPage('dashboard');
+        initSimulations();
+    }
+    
+    function showLogin() {
+        document.getElementById('app-container').classList.add('hidden');
+        document.getElementById('login-container').classList.remove('hidden');
+        document.getElementById('login-container').innerHTML = document.getElementById('login-page-template').innerHTML;
+    }
+
+    function setupEventListeners() {
+        document.getElementById('sidebar-toggle').addEventListener('click', () => {
+            AppState.isSidebarCollapsed = !AppState.isSidebarCollapsed;
+            document.body.classList.toggle('sidebar-collapsed', AppState.isSidebarCollapsed);
+            document.getElementById('sidebar').classList.toggle('collapsed', AppState.isSidebarCollapsed);
+        });
+        document.getElementById('nav-links').addEventListener('click', (e) => {
+            const link = e.target.closest('a');
+            if (link && link.dataset.page) {
+                renderPage(link.dataset.page);
+            }
+        });
+        document.body.addEventListener('click', handleBodyClick);
+    }
+    
+    function handleBodyClick(e) {
+        const target = e.target;
+        if(target.id === 'login-button') {
+            sessionStorage.setItem('isLoggedIn', 'true');
+            showApp();
+        }
+        if(target.id === 'logout-button') {
+            sessionStorage.removeItem('isLoggedIn');
+            showLogin();
+        }
+        if(target.id === 'profile-modal-btn') openModal('profile');
+        if(target.classList.contains('details-btn')) openModal('details', {id: target.dataset.id});
+        if(target.classList.contains('dispatch-btn')) openModal('dispatch', {id: target.dataset.id});
+        if(target.id === 'add-tourist-btn') openModal('add-tourist');
+        
+        if(target.closest('.modal-close-btn') || target.classList.contains('modal-backdrop')) {
+            closeAllModals();
+        }
+
+        if(target.closest('#settings-nav a')) {
+            e.preventDefault();
+            renderSettingsSubPage(target.closest('a').dataset.subpage);
+        }
+    }
+
+    function renderPage(pageId) {
+        AppState.currentPage = pageId;
+        const pageContent = document.getElementById('page-content');
+        document.querySelectorAll('#nav-links .sidebar-link').forEach(l => l.classList.toggle('active', l.dataset.page === pageId));
+        document.getElementById('breadcrumb').textContent = `Home / ${pageId.charAt(0).toUpperCase() + pageId.slice(1)}`;
+        pageContent.innerHTML = document.getElementById(`${pageId}-page-template`).innerHTML;
+        
+        if (pageId === 'dashboard') {
+            renderIncidentsTable('incidents-table-dashboard');
+            initDashboardMap();
+        }
+        if (pageId === 'incidents') {
+            renderIncidentsTable('incidents-table-main');
+        }
+        if (pageId === 'reports') {
+            initReportCharts();
+        }
+        if (pageId === 'settings') {
+            renderSettingsSubPage('profile');
+        }
+    }
+    
+    function renderSettingsSubPage(subpageId) {
+        document.querySelectorAll('#settings-nav a').forEach(a => a.classList.toggle('bg-slate-100', a.dataset.subpage === subpageId));
+        document.getElementById('settings-content').innerHTML = document.getElementById(`settings-${subpageId}-subpage-template`).innerHTML;
+
+        if (subpageId === 'zones') {
+            initZoneEditorMap();
+        }
+    }
+
+    function openModal(modalId, data = {}) {
+        closeAllModals();
+        const modalContainer = document.getElementById('modal-container');
+        modalContainer.innerHTML = document.getElementById(`${modalId}-modal-template`).innerHTML;
+        
+        if (modalId === 'details') {
+            const incident = AppState.incidents.find(i => i.id === data.id);
+            if (incident) {
+                modalContainer.querySelector('#details-id').textContent = incident.id;
+                modalContainer.querySelector('#details-name').textContent = incident.name;
+                initDetailsMap(incident);
+            }
+        } else if (modalId === 'dispatch') {
+            modalContainer.querySelector('#dispatch-id').textContent = data.id;
+        }
+    }
+    
+    function closeAllModals() {
+        document.getElementById('modal-container').innerHTML = '';
+    }
+    
+    let dashboardMap;
+    function initDashboardMap() {
+        const mapContainer = document.getElementById('map');
+        if (mapContainer && !mapContainer._leaflet_id) {
+            dashboardMap = L.map('map').setView([17.72, 83.31], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(dashboardMap);
+            // Markers logic
+        }
+    }
+
+    let detailsMap;
+    function initDetailsMap(incident) {
+        const mapContainer = document.getElementById('details-map');
+        if (mapContainer && !mapContainer._leaflet_id) {
+            detailsMap = L.map('details-map').setView([incident.lat, incident.lng], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(detailsMap);
+            L.marker([incident.lat, incident.lng]).addTo(detailsMap).bindPopup(incident.location);
+        }
+    }
+    
+    let zoneEditorMap;
+    function initZoneEditorMap() {
+        const mapContainer = document.getElementById('zone-editor-map');
+        if(mapContainer && !mapContainer._leaflet_id) {
+            zoneEditorMap = L.map('zone-editor-map').setView([17.72, 83.31], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(zoneEditorMap);
+
+            const drawnItems = new L.FeatureGroup();
+            zoneEditorMap.addLayer(drawnItems);
+            const drawControl = new L.Control.Draw({
+                edit: { featureGroup: drawnItems },
+                draw: { polygon: true, circle: false, marker: false, polyline: false, rectangle: false, circlemarker: false }
+            });
+            zoneEditorMap.addControl(drawControl);
+        }
+    }
+
+    let chartsInitialized = false;
+    function initReportCharts() {
+        if (chartsInitialized) return;
+        new Chart(document.getElementById('incidents-type-chart'), { type: 'doughnut', data: { labels: ['Panic Button', 'Anomaly', 'Geo-Fence'], datasets: [{ data: [5, 12, 8], backgroundColor: ['#ef4444', '#f97316', '#eab308'] }] } });
+        new Chart(document.getElementById('incidents-time-chart'), { type: 'line', data: { labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'], datasets: [{ label: 'Incidents', data: [8, 10, 5, 12], borderColor: '#3b82f6', tension: 0.1 }] } });
+        new Chart(document.getElementById('risk-zone-chart'), { type: 'bar', data: { labels: ['Araku Valley', 'Paderu', 'Tribal Zone'], datasets: [{ label: 'Alerts', data: [15, 22, 9], backgroundColor: '#8b5cf6' }] } });
+        new Chart(document.getElementById('demographics-chart'), { type: 'pie', data: { labels: ['Domestic', 'International'], datasets: [{ data: [1250, 178], backgroundColor: ['#10b981', '#06b6d4'] }] } });
+        chartsInitialized = true;
+    }
+
+   function initSimulations() {
+    // --- 1. Live Clock ---
+    const timeElement = document.getElementById('current-time');
+    function updateTime() {
+        if (timeElement) {
+            const now = new Date();
+            timeElement.textContent = now.toLocaleDateString('en-IN', { 
+                weekday: 'long', 
+                day: 'numeric', 
+                month: 'long', 
+                year: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit',
+                hour12: true 
+            }).replace(' at', ',');
+        }
+    }
+    updateTime();
+    setInterval(updateTime, 1000);
+
+    // --- 2. Live Statistics Simulation ---
+    const activeTouristsEl = document.getElementById('active-tourists');
+    const highRiskTouristsEl = document.getElementById('high-risk-tourists');
+    
+    if (activeTouristsEl && highRiskTouristsEl) {
+        setInterval(() => {
+            let currentTourists = parseInt(activeTouristsEl.textContent.replace(',', ''));
+            // Simulate small fluctuations in the number of tourists
+            let change = Math.floor(Math.random() * 5) - 2; // Random change between -2 and +2
+            activeTouristsEl.textContent = (currentTourists + change).toLocaleString('en-IN');
+            
+            let currentHighRisk = parseInt(highRiskTouristsEl.textContent);
+            // Simulate changes in high-risk zone numbers
+            let riskChange = Math.floor(Math.random() * 3) - 1; // Random change between -1 and +1
+            highRiskTouristsEl.textContent = Math.max(20, currentHighRisk + riskChange); // Ensure it doesn't go below 20
+        }, 3000); // Update every 3 seconds
+    }
+
+    // --- 3. Live Alert Feed Simulation ---
+    const alertFeedEl = document.getElementById('alert-feed');
+    const activeAlertsEl = document.getElementById('active-alerts');
+    
+    if (alertFeedEl && activeAlertsEl) {
+        const alerts = [
+            { type: 'PANIC', tourist: 'Amit Singh', location: 'Kailasagiri Hill', color: 'text-red-600' },
+            { type: 'GEO-FENCE', tourist: 'Sneha Reddy', location: 'Lambasingi Outskirts', color: 'text-yellow-600' },
+            { type: 'ANOMALY', tourist: 'Vikram Bose', location: 'Tyda Nature Camp', color: 'text-orange-600' },
+            { type: 'PANIC', tourist: 'John Doe', location: 'Dolphin\'s Nose', color: 'text-red-600' },
+            { type: 'GEO-FENCE', tourist: 'Priya Sharma', location: 'Borra Caves Entrance', color: 'text-yellow-600' }
+        ];
+
+        function addAlert() {
+            const randomAlert = alerts[Math.floor(Math.random() * alerts.length)];
+            const time = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true});
+            
+            const alertElement = document.createElement('div');
+            alertElement.className = 'text-sm p-3 rounded-lg bg-slate-50 border border-slate-200';
+            alertElement.innerHTML = `
+                <p class="font-bold ${randomAlert.color}">${randomAlert.type} ALERT</p>
+                <p class="text-slate-600">${randomAlert.tourist} at ${randomAlert.location}</p>
+                <p class="text-xs text-slate-400 text-right">${time}</p>
+            `;
+            
+            // Add the new alert to the top of the feed
+            alertFeedEl.prepend(alertElement);
+            
+            // Keep the feed from getting too long
+            if(alertFeedEl.children.length > 10) { 
+                alertFeedEl.lastChild.remove(); 
+            }
+            
+            // Increment the "Active Alerts Today" counter
+            let currentAlerts = parseInt(activeAlertsEl.textContent);
+            activeAlertsEl.textContent = currentAlerts + 1;
+        }
+
+        // Add a few initial alerts
+        setTimeout(addAlert, 1000);
+        setTimeout(addAlert, 3500);
+
+        // Add a new alert periodically
+        setInterval(addAlert, 8000 + Math.random() * 5000); // Add new alerts every 8-13 seconds
+    }
+}
+
+    function renderIncidentsTable(tableId) {
+        const table = document.getElementById(tableId);
+        if (!table) return;
+        const tableHeader = `...`; // omitted for brevity
+        const tableBody = `...`; // omitted for brevity
+        table.innerHTML = tableHeader + tableBody;
+    }
+    </script>
+</body>
+</html>
+
